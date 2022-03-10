@@ -26,18 +26,25 @@ void load_elf()
   }
 }
 
-void parse_elf()
+Elf64_Shdr *lookup_section(const char *name)
 {
-  // find .shstrtab first
   Elf64_Shdr *shdr = load_base + ehdr->e_shoff;
   char *shstrtab = load_base + shdr[ehdr->e_shstrndx].sh_offset;
   
   for (int i = 0; i < ehdr->e_shnum; ++i, ++shdr) {
     const char *section_name = shstrtab + shdr->sh_name; 
-    if (!strcmp(".text", section_name)) break;
+    if (!strcmp(name, section_name)) break;
   }
 
+  return shdr;
+}
+
+void parse_elf()
+{
+  Elf64_Shdr *shdr;
+  
   // allocate a memory for .text
+  shdr = lookup_section(".text");
   run_base = mmap(NULL, shdr->sh_size + shdr->sh_offset, PROT_WRITE | PROT_EXEC,
                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
@@ -50,22 +57,12 @@ void parse_elf()
   memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
 
   // find .symtab
-  shdr = load_base + ehdr->e_shoff;
-  for (int i = 0; i < ehdr->e_shnum; ++i, ++shdr) {
-    const char *section_name = shstrtab + shdr->sh_name; 
-    if (!strcmp(".symtab", section_name)) break;
-  }
-
+  shdr = lookup_section(".symtab");
   Elf64_Sym *symbol_table = load_base + shdr->sh_offset;
   int num_symbols = shdr->sh_size / shdr ->sh_entsize;
 
   // find .strtab
-  shdr = load_base + ehdr->e_shoff;
-  for (int i = 0; i < ehdr->e_shnum; ++i, ++shdr) {
-    const char *section_name = shstrtab + shdr->sh_name; 
-    if (!strcmp(".strtab", section_name)) break;
-  }
-  
+  shdr = lookup_section(".strtab");
   char *strtab = load_base + shdr->sh_offset;
 
   // find add10()
