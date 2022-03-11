@@ -4,13 +4,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/mman.h#include <elf.h>
+#include <sys/mman.h>
+#include <elf.h>
 #include <string.h>
 
 void *load_base;
 char *run_base;
 Elf64_Ehdr *ehdr;
-int (*func)(int);
 
 void load_elf()
 {
@@ -63,24 +63,6 @@ void parse_elf()
   // copy .got.plt from the ELF file
   shdr = lookup_section(".got.plt");
   memcpy(run_base + shdr->sh_addr, load_base + shdr->sh_offset, shdr->sh_size);
-  
-  // find .symtab
-  shdr = lookup_section(".symtab");
-  Elf64_Sym *symbol_table = load_base + shdr->sh_offset;
-  int num_symbols = shdr->sh_size / shdr ->sh_entsize;
-
-  // find .strtab
-  shdr = lookup_section(".strtab");
-  char *strtab = load_base + shdr->sh_offset;
-
-  // find add10()
-  for (int i = 0; i < num_symbols; ++i) {
-    const char *symbol_name = strtab + symbol_table[i].st_name;
-    if (!strcmp("add10", symbol_name)) {
-      func = (int(*)(int))(run_base + symbol_table[i].st_value);
-      break;
-    }
-  }
 }
 
 void do_relocation()
@@ -114,8 +96,34 @@ void do_relocation()
   }
 }
 
+Elf64_Addr *lookup_function(const char *name)
+{
+  Elf64_Addr *func = NULL;
+  
+  // find .symtab
+  Elf64_Shdr *shdr = lookup_section(".symtab");
+  Elf64_Sym *symbol_table = load_base + shdr->sh_offset;
+  int num_symbols = shdr->sh_size / shdr ->sh_entsize;
+
+  // find .strtab
+  shdr = lookup_section(".strtab");
+  char *strtab = load_base + shdr->sh_offset;
+
+  // find add10()
+  for (int i = 0; i < num_symbols; ++i) {
+    const char *symbol_name = strtab + symbol_table[i].st_name;
+    if (!strcmp(name, symbol_name)) {
+      func = (Elf64_Addr*)(run_base + symbol_table[i].st_value);
+      break;
+    }
+  }
+
+  return func;
+}
+
 void execute_func()
 {
+  int (*func)(int) = (int(*)(int))lookup_function("add10");
   printf("func = %d\n", func(10));
 }
 
