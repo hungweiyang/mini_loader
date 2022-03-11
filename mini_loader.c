@@ -4,8 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/mman.h>
-#include <elf.h>
+#include <sys/mman.h#include <elf.h>
 #include <string.h>
 
 void *load_base;
@@ -43,9 +42,9 @@ void parse_elf()
 {
   Elf64_Shdr *shdr;
   
-  // allocate a memory for .text
-  shdr = lookup_section(".text");
-  run_base = mmap(NULL, shdr->sh_size + shdr->sh_offset, PROT_WRITE | PROT_EXEC,
+  // allocate a memory for .text and .got.plt
+  shdr = lookup_section(".got.plt");
+  run_base = mmap(NULL, shdr->sh_size + shdr->sh_addr, PROT_WRITE | PROT_EXEC,
                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   if (run_base == MAP_FAILED) {
@@ -53,9 +52,18 @@ void parse_elf()
       exit(1);
   }
 
-  // copy the .text
+  // copy .text from the ELF file
+  shdr = lookup_section(".text");
   memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
 
+  // copy .plt from the ELF file
+  shdr = lookup_section(".plt");
+  memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
+  
+  // copy .got.plt from the ELF file
+  shdr = lookup_section(".got.plt");
+  memcpy(run_base + shdr->sh_addr, load_base + shdr->sh_offset, shdr->sh_size);
+  
   // find .symtab
   shdr = lookup_section(".symtab");
   Elf64_Sym *symbol_table = load_base + shdr->sh_offset;
@@ -75,6 +83,37 @@ void parse_elf()
   }
 }
 
+void do_relocation()
+{
+  // find .rela.plt
+  Elf64_Shdr *shdr = lookup_section(".rela.plt");
+  Elf64_Rela *rela_plt = load_base + shdr->sh_offset;
+  int num_of_relocation = shdr->sh_size / shdr ->sh_entsize;
+  
+  shdr = lookup_section(".dynsym");
+  Elf64_Sym *dynsym_table = load_base + shdr->sh_offset;
+  
+  for (int i = 0 ; i < num_of_relocation; ++i, ++rela_plt) {
+    
+    int relocation_type = ELF64_R_TYPE(rela_plt->r_info);
+    int symbol_index = ELF64_R_SYM(rela_plt->r_info);
+    
+    switch (relocation_type) {  
+      case R_X86_64_JUMP_SLOT: {
+        Elf64_Addr patch_value = (Elf64_Addr)run_base + dynsym_table[symbol_index].st_value;
+        Elf64_Addr *patch_offset = (Elf64_Addr*)(run_base + rela_plt->r_offset);
+        *patch_offset = patch_value;
+        //printf("0x%p, %lx\n", patch_offset, patch_value);
+        break;
+      }
+      
+      default:
+        perror("not supported relocation type");
+        exit(1);
+    }
+  }
+}
+
 void execute_func()
 {
   printf("func = %d\n", func(10));
@@ -84,6 +123,7 @@ int main()
 {
   load_elf();
   parse_elf();
+  do_relocation();
   execute_func();
 
   return 0;

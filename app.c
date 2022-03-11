@@ -5,5 +5,6 @@ int add5(int i)
 
 int add10(int i)
 {
-  return i+10;
+  i = add5(i);
+  return add5(i);
 }
