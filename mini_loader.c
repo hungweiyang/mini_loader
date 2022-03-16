@@ -56,6 +56,9 @@ void parse_elf()
   shdr = lookup_section(".text");
   memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
 
+  shdr = lookup_section(".rodata");
+  memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
+  
   // copy .plt from the ELF file
   shdr = lookup_section(".plt");
   memcpy(run_base + shdr->sh_offset, load_base + shdr->sh_offset, shdr->sh_size);
@@ -79,10 +82,16 @@ void do_relocation()
     
     int relocation_type = ELF64_R_TYPE(rela_plt->r_info);
     int symbol_index = ELF64_R_SYM(rela_plt->r_info);
+
+    extern Elf64_Addr my_dlsym(const char *name);    
+    Elf64_Addr symbol_value = 
+      (dynsym_table[symbol_index].st_shndx == SHN_UNDEF)
+      ? my_dlsym("printf")
+      : (Elf64_Addr)run_base + dynsym_table[symbol_index].st_value;
     
     switch (relocation_type) {  
       case R_X86_64_JUMP_SLOT: {
-        Elf64_Addr patch_value = (Elf64_Addr)run_base + dynsym_table[symbol_index].st_value;
+        Elf64_Addr patch_value = symbol_value;
         Elf64_Addr *patch_offset = (Elf64_Addr*)(run_base + rela_plt->r_offset);
         *patch_offset = patch_value;
         //printf("0x%p, %lx\n", patch_offset, patch_value);
@@ -123,8 +132,16 @@ Elf64_Addr *lookup_function(const char *name)
 
 void execute_func()
 {
-  int (*func)(int) = (int(*)(int))lookup_function("add10");
-  printf("func = %d\n", func(10));
+  int (*func1)(int) = (int(*)(int))lookup_function("add10");
+  printf("func1 : %d\n", func1(10));
+
+  const char *(*func2)() = (const char*(*)())lookup_function("get_hello");
+  printf("func2 : %s\n", func2());
+
+  void *(*func3)() = (void*(*)())lookup_function("print_hello");
+  printf("func3 : ");
+  func3();
+  printf("\n");
 }
 
 int main()
